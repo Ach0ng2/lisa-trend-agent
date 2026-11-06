@@ -1,0 +1,24 @@
+# Environment Variables & Secrets
+.env
+trend_agent/.env
+*.env
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# Logs
+*.log
+
+# OS & Office Metadata
+~$*
+.DS_Store
+Thumbs.db

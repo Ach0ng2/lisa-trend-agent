@@ -1,0 +1,84 @@
+import requests
+import json
+from typing import List, Dict, Any
+
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
+
+CLUSTER_PROMPT = """
+Kamu adalah Lisa, content writer sekaligus rekan kerja terdekat Tama (Lead Production channel YouTube Mas Ario @sheggario).
+Gaya bicaramu santai, cerdas, akrab, bilingual Indonesia-Inggris secara alami, dan sangat paham selera konten Mas Ario (tech storytelling, ekosistem perangkat, komparasi jujur, tanpa menjelekkan brand).
+
+ATURAN MUTLAK PENULISAN:
+- DILARANG KERAS menggunakan simbol em dash (strip panjang atau double dash) dalam teks apapun. Ganti dengan koma, titik, atau tanda kurung.
+
+Berikut adalah sinyal tren mentah dari Google Trends dan pencarian YouTube hari ini:
+=== RAW SIGNALS ===
+{raw_signals}
+===================
+
+TUGAS:
+1. Pilih 3 sampai 4 topik tech/gadget/AI paling seksi dan relevan untuk audiens Indonesia dan channel Mas Ario.
+2. Buang topik non-tech (olahraga, politik, gosip umum).
+3. Untuk setiap topik, susun angle cerita dengan gaya Lisa yang ngobrol langsung ke Tama (panggil 'lo' atau 'Mas Ario', kasih saran sudut pandang yang unik).
+4. Kembalikan data dalam format JSON murni:
+[
+  {{
+    "topic_name": "Nama Topik yang Menarik",
+    "yt_query": "Query pencarian YouTube paling pas untuk cek pasar",
+    "category": "Flash / Micro / Macro",
+    "core_entity": "Nama gadget atau teknologi kunci",
+    "angle_idea": "Saran angle cerita ala Lisa yang seru buat dibahas bareng Mas Ario (1-2 kalimat padat dan berbobot)",
+    "recommended_format": "IG Reels / Shorts ATAU YouTube Long-Form"
+  }}
+]
+
+KEMBALIKAN HANYA JSON VALID TANPA MARKDOWN TAMBAHAN.
+"""
+
+def extract_and_cluster_topics(raw_signals: List[str], api_key: str) -> List[Dict[str, Any]]:
+    """
+    Mengelompokkan tren mentah menjadi 3-4 topik tech pilihan dengan gaya Lisa.
+    """
+    signals_text = "\n".join([f"- {s}" for s in raw_signals[:40]])
+    prompt = CLUSTER_PROMPT.format(raw_signals=signals_text)
+    
+    url = f"{GEMINI_API_URL}?key={api_key}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.4,
+            "responseMimeType": "application/json"
+        }
+    }
+    
+    try:
+        response = requests.post(url, json=payload, timeout=40)
+        if response.status_code == 200:
+            data = response.json()
+            text_result = data["candidates"][0]["content"]["parts"][0]["text"]
+            # Bersihkan jika ada backticks
+            cleaned_text = text_result.strip()
+            if cleaned_text.startswith("```json"):
+                cleaned_text = cleaned_text[7:]
+            if cleaned_text.startswith("```"):
+                cleaned_text = cleaned_text[3:]
+            if cleaned_text.endswith("```"):
+                cleaned_text = cleaned_text[:-3]
+            topics = json.loads(cleaned_text.strip())
+            return topics
+        else:
+            print(f"[Gemini Error] Status {response.status_code}: {response.text}")
+    except Exception as e:
+        print(f"[Gemini Exception] {e}")
+    return []
+
+if __name__ == "__main__":
+    import os
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    key = os.getenv("GEMINI_API_KEY")
+    if key:
+        sample = ["S26 Ultra vs Vivo X300", "DeepSeek R1 local reasoning", "Snapdragon 8 Elite vs Dimensity 9400"]
+        res = extract_and_cluster_topics(sample, key)
+        print("Topics:", res)
