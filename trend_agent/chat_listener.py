@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import json
+import random
 import requests
 from dotenv import load_dotenv
 
@@ -10,33 +11,56 @@ if sys.platform == "win32":
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from evaluation.yt_arbitrage import evaluate_topic_supply_demand
+from evaluation.yt_arbitrage import evaluate_topic_supply_demand, escape_html
 from notifier.telegram_bot import send_telegram_message
-from ingestion.trends_rss import fetch_google_trends_rss
-from ingestion.yt_suggest import get_yt_suggestions
-from clustering.topic_cluster import extract_and_cluster_topics
-
-def escape_html(text: str) -> str:
-    if not text:
-        return ""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 TELEGRAM_API_URL = "https://api.telegram.org/bot"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
 
+# Pool topik rotasi beragam untuk 'Opsi Lain' agar tidak pernah monoton
+DYNAMIC_TOPIC_POOLS = [
+    [
+        {"name": "ROG Ally X Gaming", "cat": "Micro"},
+        {"name": "RedMagic 10 Pro", "cat": "Flash"},
+        {"name": "DroidDeck SteamOS", "cat": "Micro"}
+    ],
+    [
+        {"name": "DJI Mic 2 Audio", "cat": "Micro"},
+        {"name": "DJI Osmo Pocket 3", "cat": "Macro"},
+        {"name": "Sony ZV-E10 II", "cat": "Micro"}
+    ],
+    [
+        {"name": "Samsung S26 Ultra", "cat": "Macro"},
+        {"name": "Vivo X200 Pro Camera", "cat": "Micro"},
+        {"name": "Xiaomi 15 Ultra", "cat": "Flash"}
+    ],
+    [
+        {"name": "DeepSeek R1 AI", "cat": "Flash"},
+        {"name": "RTX 5080 Gaming", "cat": "Macro"},
+        {"name": "Snapdragon X Elite", "cat": "Macro"}
+    ],
+    [
+        {"name": "MacBook Pro M4", "cat": "Macro"},
+        {"name": "iPad Mini 7", "cat": "Micro"},
+        {"name": "Insta360 Ace Pro 2", "cat": "Micro"}
+    ]
+]
+
+CURRENT_POOL_INDEX = 0
+
 LISA_INTENT_PROMPT = """
-Kamu adalah sistem parser intent untuk asisten Lisa di Telegram (partner kerja Tama, Lead Production Mas Ario @sheggario).
+Kamu adalah sistem parser intent untuk bot Telegram Lisa (partner kerja Tama, Lead Production Mas Ario @sheggario).
 User mengirim pesan: "{user_text}"
 
 Tentukan intent pesan ini:
-1. "RESEARCH_TOPIC" jika user meminta riset/telaah gadget, software, atau topik tertentu (misal: "Lis, kalo droiddeck gimana?", "bedah poco f9", "cek DJI mic").
-2. "MORE_OPTIONS" jika user meminta ide/opsi topik lain (misal: "opsi lain dong", "kurang suka", "ganti topik", "ada ide lain?").
-3. "GENERAL_CHAT" jika sapaan, obrolan santai, atau diskusi biasa.
+1. "RESEARCH_TOPIC" jika user menyebut/meminta telaah gadget, software, atau topik tertentu (misal: "Lis, kalo droiddeck gimana?", "bedah s26 ultra", "cek dji mic 2").
+2. "MORE_OPTIONS" jika user meminta opsi ide lain / alternatif ide (misal: "ada 3 opsi ide lain?", "opsi lain", "ganti topik", "kurang suka", "ada ide lain?").
+3. "GENERAL_CHAT" jika sapaan atau obrolan santai.
 
 Kembalikan HANYA JSON murni:
 {{
   "intent": "RESEARCH_TOPIC / MORE_OPTIONS / GENERAL_CHAT",
-  "query": "kata kunci pencarian bersih jika intent RESEARCH_TOPIC, atau null"
+  "query": "nama gadget atau produk bersih tanpa kata 'lis' atau 'gimana' jika intent RESEARCH_TOPIC, atau null"
 }}
 """
 
@@ -101,49 +125,50 @@ def handle_research_topic(query: str, yt_key: str) -> str:
     if lb:
         lines.append(f"🎬 <b>Bukti Demand Long-Form:</b>\n<a href=\"{lb['url']}\">{escape_html(lb['title'])}</a>\n↳ <i>{lb['views']:,} views ({lb['vph']} VPH) • {escape_html(lb['channel'])}</i>\n")
     else:
-        lines.append("🎬 <b>Bukti Demand Long-Form:</b>\n<i>Belum ada video panjang besar di niche ini (peluang first-mover).</i>\n")
+        lines.append("🎬 <b>Bukti Demand Long-Form:</b>\n<i>Belum ada video panjang berbahasa Indo/Inggris yang relevan di topik ini.</i>\n")
         
     if sb:
         lines.append(f"⚡ <b>Bukti Viral Short-Form:</b>\n<a href=\"{sb['url']}\">{escape_html(sb['title'])}</a>\n↳ <i>{sb['views']:,} views ({sb['vph']} VPH) • {escape_html(sb['channel'])}</i>\n")
     else:
-        lines.append("⚡ <b>Bukti Viral Short-Form:</b>\n<i>Belum ada shorts viral yang meledak di topik ini.</i>\n")
+        lines.append("⚡ <b>Bukti Viral Short-Form:</b>\n<i>Belum ada shorts viral berbahasa Indo/Inggris yang relevan di topik ini.</i>\n")
         
     lines.append("────────────────────────────")
-    lines.append("Gimana Tam, menurut lo topik ini menarik buat dieksekusi bareng Mas Ario? Kalo mau naskahnya, kabarin gue yaa! ✨")
+    lines.append("Gimana Tam, menurut lo topik ini potensial buat digarap bareng Mas Ario? Kalo mau dieksekusi, colek gue yaa! ✨")
     return "\n".join(lines)
 
-def handle_more_options(gemini_key: str, yt_key: str) -> str:
-    print("[More Options] Mencari 3 topik alternatif segar...")
-    # Tarik seed segar
-    alt_seeds = ["MacBook M4", "Insta360 Ace Pro", "DJI Mic 2", "Ollama", "iPad Mini 7", "Anker PowerBank"]
-    raw = []
-    for s in alt_seeds:
-        for sug in get_yt_suggestions(f"{s} review")[:2]:
-            raw.append(f"{sug} (YT Suggest)")
-    topics = extract_and_cluster_topics(raw, gemini_key)
+def handle_more_options(yt_key: str) -> str:
+    global CURRENT_POOL_INDEX
+    print(f"[More Options] Memakai pool rotasi ke-{CURRENT_POOL_INDEX}...")
+    
+    pool = DYNAMIC_TOPIC_POOLS[CURRENT_POOL_INDEX]
+    CURRENT_POOL_INDEX = (CURRENT_POOL_INDEX + 1) % len(DYNAMIC_TOPIC_POOLS)
     
     lines = [
         "🔄 <b>Opsi Topik Alternatif Segar dari Lisa</b> ✨\n",
         "Ini 3 ide topik baru dengan metrik pasar tervalidasi (Bahasa Indo/Inggris murni):\n"
     ]
-    for i, t in enumerate(topics[:3], 1):
-        q = t.get("yt_query") or t.get("topic_name")
+    
+    for i, item in enumerate(pool, 1):
+        q = item["name"]
+        cat = item["cat"]
         m = evaluate_topic_supply_demand(q, yt_key)
-        cat = t.get("category", "Micro")
         lb = m.get("long_benchmark")
         sb = m.get("short_benchmark")
         
         lines.append("────────────────────────────")
-        lines.append(f"📌 <b>{i}. {escape_html(t['topic_name'])}</b>")
+        lines.append(f"📌 <b>{i}. {escape_html(q)}</b>")
         lines.append(f"🏷️ <b>Tipe:</b> {cat} Trend | <b>Score:</b> <code>{m['arbitrage_score']}/10</code>")
         lines.append(f"📈 <b>Status Pasar:</b> {m['status']}")
+        
         if lb:
-            lines.append(f"\n🎬 <b>Demand Long-Form:</b> <a href=\"{lb['url']}\">{escape_html(lb['title'])}</a> ({lb['views']:,} views • {escape_html(lb['channel'])})")
+            lines.append(f"\n🎬 <b>Demand Long-Form:</b>\n<a href=\"{lb['url']}\">{escape_html(lb['title'])}</a>\n↳ <i>{lb['views']:,} views ({lb['vph']} VPH) • {escape_html(lb['channel'])}</i>")
         if sb:
-            lines.append(f"\n⚡ <b>Viral Short-Form:</b> <a href=\"{sb['url']}\">{escape_html(sb['title'])}</a> ({sb['views']:,} views • {escape_html(sb['channel'])})\n")
+            lines.append(f"\n⚡ <b>Viral Short-Form:</b>\n<a href=\"{sb['url']}\">{escape_html(sb['title'])}</a>\n↳ <i>{sb['views']:,} views ({sb['vph']} VPH) • {escape_html(sb['channel'])}\n</i>")
+        else:
+            lines.append("")
             
     lines.append("────────────────────────────")
-    lines.append("Ada yang lebih klik di lo gak Tam dari opsi di atas? ✨")
+    lines.append("Ada yang lebih klik di lo gak Tam dari opsi alternatif di atas? ✨")
     return "\n".join(lines)
 
 def run_chat_listener():
@@ -158,7 +183,7 @@ def run_chat_listener():
         return
         
     print("=" * 60)
-    print("🤖 LISA TELEGRAM CHAT LISTENER IS ONLINE")
+    print("🤖 LISA TELEGRAM CHAT LISTENER (V2 PRO) IS ONLINE")
     print("Listening for messages from Tama...")
     print("=" * 60)
     
@@ -172,35 +197,45 @@ def run_chat_listener():
             res = requests.get(url, timeout=35)
             if res.status_code == 200:
                 data = res.json()
-                for update in data.get("result", []):
-                    offset = update["update_id"] + 1
-                    msg = update.get("message")
-                    if not msg:
-                        continue
+                updates = data.get("result", [])
+                
+                if updates:
+                    # SEGERA update offset ke Telegram agar TIDAK ADA DUPLIKASI pesan saat proses berat!
+                    max_id = max(u["update_id"] for u in updates)
+                    offset = max_id + 1
+                    try:
+                        requests.get(f"{TELEGRAM_API_URL}{token}/getUpdates?offset={offset}&limit=1", timeout=5)
+                    except Exception:
+                        pass
                         
-                    chat_id = str(msg.get("chat", {}).get("id"))
-                    user_text = msg.get("text", "").strip()
-                    
-                    if not user_text:
-                        continue
+                    for update in updates:
+                        msg = update.get("message")
+                        if not msg:
+                            continue
+                            
+                        chat_id = str(msg.get("chat", {}).get("id"))
+                        user_text = msg.get("text", "").strip()
                         
-                    print(f"\n[Diterima dari {chat_id}] {user_text}")
-                    
-                    # Cek intent
-                    parsed = parse_user_intent(user_text, gemini_key)
-                    intent = parsed.get("intent", "GENERAL_CHAT")
-                    query = parsed.get("query")
-                    
-                    if intent == "RESEARCH_TOPIC" and query:
-                        reply = handle_research_topic(query, yt_key)
-                    elif intent == "MORE_OPTIONS":
-                        reply = handle_more_options(gemini_key, yt_key)
-                    else:
-                        reply = generate_lisa_chat_reply(user_text, gemini_key)
+                        if not user_text:
+                            continue
+                            
+                        print(f"\n[Diterima dari {chat_id}] {user_text}")
                         
-                    send_telegram_message(token, chat_id, reply)
-                    print(f"[Dibalas ke {chat_id}] Sukses!")
-                    
+                        parsed = parse_user_intent(user_text, gemini_key)
+                        intent = parsed.get("intent", "GENERAL_CHAT")
+                        query = parsed.get("query")
+                        print(f"[Intent Parsed] {intent} (Query: {query})")
+                        
+                        if intent == "RESEARCH_TOPIC" and query:
+                            reply = handle_research_topic(query, yt_key)
+                        elif intent == "MORE_OPTIONS":
+                            reply = handle_more_options(yt_key)
+                        else:
+                            reply = generate_lisa_chat_reply(user_text, gemini_key)
+                            
+                        send_telegram_message(token, chat_id, reply)
+                        print(f"[Dibalas ke {chat_id}] Sukses!")
+                        
         except requests.exceptions.Timeout:
             continue
         except Exception as e:
