@@ -1,0 +1,9 @@
+name = "lisa-telegram-bot"
+main = "index.js"
+compatibility_date = "2024-09-23"
+
+# Variables can be set via Cloudflare Dashboard or Wrangler secrets
+# [vars]
+# TELEGRAM_BOT_TOKEN = "..."
+# GEMINI_API_KEY = "..."
+# YOUTUBE_API_KEY = "..."
