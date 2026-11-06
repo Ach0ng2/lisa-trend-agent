@@ -98,3 +98,4 @@
   3. `evaluation/`: YouTube Arbitrage Index, Views Per Hour (VPH) video baru, dan status saturasi pasar.
   4. `notifier/`: Pengiriman laporan berformat HTML via Telegram Bot API.
 - **Otomasi Cloud (Zero Cost)**: `.github/workflows/daily_trend.yml` terjadwal cron setiap pukul 00.50 UTC (~07.50 WIB) sebelum jam kerja pagi.
+- **GitHub Repository**: `https://github.com/Ach0ng2/lisa-trend-agent` (Verified Live & Run #1 Success in 22s).
