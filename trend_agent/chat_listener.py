@@ -16,7 +16,6 @@ from notifier.telegram_bot import send_telegram_message
 TELEGRAM_API_URL = "https://api.telegram.org/bot"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
 
-# 6 Content Pillars Mas Ario
 SIX_CONTENT_PILLARS = [
     {
         "id": "useful_softwares",
@@ -111,6 +110,13 @@ ATURAN EKSPLORASI:
 ]
 """
 
+def send_chat_action(token: str, chat_id: str, action: str = "typing"):
+    """Memberitahu Telegram bahwa Lisa sedang mengetik / mencari data."""
+    try:
+        requests.post(f"{TELEGRAM_API_URL}{token}/sendChatAction", json={"chat_id": chat_id, "action": action}, timeout=3)
+    except Exception:
+        pass
+
 def parse_user_intent(user_text: str, gemini_key: str) -> dict:
     url = f"{GEMINI_API_URL}?key={gemini_key}"
     payload = {
@@ -118,7 +124,7 @@ def parse_user_intent(user_text: str, gemini_key: str) -> dict:
         "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
     }
     try:
-        r = requests.post(url, json=payload, timeout=15)
+        r = requests.post(url, json=payload, timeout=10)
         if r.status_code == 200:
             res_text = r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
             return json.loads(res_text)
@@ -133,7 +139,7 @@ def generate_lisa_chat_reply(user_text: str, gemini_key: str) -> str:
         "generationConfig": {"temperature": 0.7}
     }
     try:
-        r = requests.post(url, json=payload, timeout=20)
+        r = requests.post(url, json=payload, timeout=12)
         if r.status_code == 200:
             return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
@@ -192,16 +198,14 @@ def handle_more_options(gemini_key: str, yt_key: str) -> str:
     
     candidates = []
     try:
-        r = requests.post(url, json=payload, timeout=20)
+        r = requests.post(url, json=payload, timeout=15)
         if r.status_code == 200:
             candidates = json.loads(r.json()["candidates"][0]["content"]["parts"][0]["text"].strip())
     except Exception as e:
         print(f"[Gemini Dynamic Gen Error] {e}")
         
-    # Fallback aman jika gemini gagal
     if not candidates:
         examples = [e.strip() for e in pillar["examples"].split(",")]
-        random.shuffle(examples)
         candidates = [{"topic_name": ex, "yt_query": ex, "category": "Micro"} for ex in examples[:3]]
         
     lines = [
@@ -213,8 +217,6 @@ def handle_more_options(gemini_key: str, yt_key: str) -> str:
     for i, item in enumerate(candidates[:3], 1):
         q = clean_query_entity(item.get("yt_query") or item.get("topic_name"))
         cat = item.get("category", "Micro")
-        
-        # Simpan ke history agar tidak pernah diulang
         SEEN_TOPICS_HISTORY.add(q.lower())
         
         m = evaluate_topic_supply_demand(q, yt_key)
@@ -242,14 +244,13 @@ def run_chat_listener():
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     gemini_key = os.getenv("GEMINI_API_KEY")
     yt_key = os.getenv("YOUTUBE_API_KEY")
-    target_chat_id = os.getenv("TELEGRAM_CHAT_ID")
     
     if not token or not gemini_key or not yt_key:
         print("[Error] Kredensial di .env belum lengkap.")
         return
         
     print("=" * 60)
-    print("🤖 LISA TELEGRAM CHAT LISTENER (V3 DYNAMIC PILLARS) IS ONLINE")
+    print("🤖 LISA TELEGRAM CHAT LISTENER (V3 LIGHTNING) IS ONLINE")
     print("Listening for messages from Tama...")
     print("=" * 60)
     
@@ -266,7 +267,6 @@ def run_chat_listener():
                 updates = data.get("result", [])
                 
                 if updates:
-                    # Immediate Telegram Offset Acknowledgment
                     max_id = max(u["update_id"] for u in updates)
                     offset = max_id + 1
                     try:
@@ -286,6 +286,8 @@ def run_chat_listener():
                             continue
                             
                         print(f"\n[Diterima dari {chat_id}] {user_text}")
+                        # Kirim status typing instan agar user tahu Lisa aktif bekerja
+                        send_chat_action(token, chat_id, "typing")
                         
                         parsed = parse_user_intent(user_text, gemini_key)
                         intent = parsed.get("intent", "GENERAL_CHAT")
@@ -306,7 +308,7 @@ def run_chat_listener():
             continue
         except Exception as e:
             print(f"[Listener Exception] {e}")
-            time.sleep(3)
+            time.sleep(2)
 
 if __name__ == "__main__":
     run_chat_listener()
