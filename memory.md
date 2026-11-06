@@ -92,10 +92,21 @@
 - **API Keys Aktif**:
   - Google Gemini API (`GEMINI_API_KEY` via AI Studio Free Tier).
   - YouTube Data API v3 (`YOUTUBE_API_KEY` via Google Cloud Console Free Tier).
-- **Pipeline Arsitektur**:
-  1. `ingestion/`: Google Trends RSS (ID & US), YouTube Wildcard Suggest Autocomplete.
-  2. `clustering/`: Topic extraction, categorisation (Flash/Micro/Macro), dan angle storytelling via `gemini-flash-lite-latest`.
-  3. `evaluation/`: YouTube Arbitrage Index, Views Per Hour (VPH) video baru, dan status saturasi pasar.
-  4. `notifier/`: Pengiriman laporan berformat HTML via Telegram Bot API.
+- **Format Laporan & Konten (NON-NEGOTIABLE dari Tama)**:
+  1. **Closing Phrase**: `By Now, Be Nice!` HANYA untuk naskah/script video Mas Ario. DILARANG KERAS dipakai di chat, notifikasi bot, laporan tren, atau pesan Lisa ke Tama.
+  2. **Struktur Laporan Bot**: Hapus bagian `Angle YouTube (Long-Form)` dan `Opsi Hook Reels/Shorts Mas Ario`. Fokus pada: Nama Topik, Klasifikasi Tren, Arbitrage Score & Status Pasar, serta Bukti Video (Long-Form & Short-Form).
+  3. **Filter Bahasa & Kualitas Video**:
+     - Wajib HANYA video berbahasa **Indonesia atau Inggris** (alfabet Latin murni, tolak karakter Arab, Devanagari/India, Thai, Cyrillic, Mandarin).
+     - Buang video destruktif/siksaan fisik ekstrem (seperti hot metal ball 1000°C, blender, drop test ekstrem) yang tidak masuk akal diproduksi Mas Ario & Tama. Prioritaskan review, comparison, hands-on, unboxing, camera/gaming test, atau tips tech nyata.
+  4. **Interaksi Chatbot Telegram & 6 Pilar Konten**:
+     - Bot listener WAJIB memahami 6 Content Pillars Mas Ario (contoh perangkat/software HANYA acuan tema, Gemini WAJIB eksploratif mencari nama produk/software baru):
+       1. **Useful Softwares & Everyday Apps**: LocalSend, Life360, GoodNotes, Family Link, Raycast, Obsidian, Bitwarden, KDE Connect.
+       2. **Handheld & Mobile Gaming**: ROG Ally, Steam Deck, DroidDeck, Odin 2, RedMagic, Gamesir, emulasi game mobile.
+       3. **Creator Gear & Audio**: DJI Mic 2, Osmo Pocket 3, Rode Wireless, Sony ZV-E10, Insta360 Ace Pro.
+       4. **Smartphones & Flagship Comparisons**: Samsung Galaxy S, Vivo X, Xiaomi Ultra, iPhone Pro, Pixel.
+       5. **AI & Next-Gen Computing**: DeepSeek, Ollama, Ray-Ban Meta, RTX 50 series, Snapdragon X Elite.
+       6. **Productivity & Ecosystem Workflow**: MacBook M-series, iPad Mini/Pro, Samsung DeX setup, multi-device sync.
+     - Jika Tama meminta opsi lain ("opsi lain", "kurang suka"), jalankan pipeline rotasi pilar dan simpan `seen_history` agar DILARANG mengulang nama produk/software yang sudah pernah disajikan sebelumnya.
+     - Jika Tama meminta menelaah topik spesifik (misal: "Lis, kalo droiddeck gimana?"), bot otomatis menjalankan riset pasar YouTube (views terbanyak & VPH tertinggi berbahasa Indo/Inggris) dan merespon dalam format kartu laporan yang sama.
 - **Otomasi Cloud (Zero Cost)**: `.github/workflows/daily_trend.yml` terjadwal cron setiap pukul 00.50 UTC (~07.50 WIB) sebelum jam kerja pagi.
 - **GitHub Repository**: `https://github.com/Ach0ng2/lisa-trend-agent` (Verified Live & Run #1 Success in 22s).

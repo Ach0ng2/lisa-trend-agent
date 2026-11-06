@@ -2,7 +2,6 @@ import os
 import sys
 import time
 import json
-import random
 import requests
 from dotenv import load_dotenv
 
@@ -11,42 +10,54 @@ if sys.platform == "win32":
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from evaluation.yt_arbitrage import evaluate_topic_supply_demand, escape_html
+from evaluation.yt_arbitrage import evaluate_topic_supply_demand, escape_html, clean_query_entity
 from notifier.telegram_bot import send_telegram_message
 
 TELEGRAM_API_URL = "https://api.telegram.org/bot"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
 
-# Pool topik rotasi beragam untuk 'Opsi Lain' agar tidak pernah monoton
-DYNAMIC_TOPIC_POOLS = [
-    [
-        {"name": "ROG Ally X Gaming", "cat": "Micro"},
-        {"name": "RedMagic 10 Pro", "cat": "Flash"},
-        {"name": "DroidDeck SteamOS", "cat": "Micro"}
-    ],
-    [
-        {"name": "DJI Mic 2 Audio", "cat": "Micro"},
-        {"name": "DJI Osmo Pocket 3", "cat": "Macro"},
-        {"name": "Sony ZV-E10 II", "cat": "Micro"}
-    ],
-    [
-        {"name": "Samsung S26 Ultra", "cat": "Macro"},
-        {"name": "Vivo X200 Pro Camera", "cat": "Micro"},
-        {"name": "Xiaomi 15 Ultra", "cat": "Flash"}
-    ],
-    [
-        {"name": "DeepSeek R1 AI", "cat": "Flash"},
-        {"name": "RTX 5080 Gaming", "cat": "Macro"},
-        {"name": "Snapdragon X Elite", "cat": "Macro"}
-    ],
-    [
-        {"name": "MacBook Pro M4", "cat": "Macro"},
-        {"name": "iPad Mini 7", "cat": "Micro"},
-        {"name": "Insta360 Ace Pro 2", "cat": "Micro"}
-    ]
+# 6 Content Pillars Mas Ario
+SIX_CONTENT_PILLARS = [
+    {
+        "id": "useful_softwares",
+        "title": "Useful Softwares & Everyday Apps",
+        "desc": "Aplikasi utilitas, problem-solving sehari-hari, transfer file lintas platform, parenting & family tech, serta tools produktivitas.",
+        "examples": "LocalSend, Life360, GoodNotes, Raycast, Obsidian, Family Link, Bitwarden, KDE Connect, Syncthing, Arc Browser"
+    },
+    {
+        "id": "handheld_gaming",
+        "title": "Handheld & Mobile Gaming",
+        "desc": "Handheld PC Windows & SteamOS, emulasi game konsol di Android, aksesoris controller, dan HP gaming bertenaga.",
+        "examples": "ROG Ally, Steam Deck, DroidDeck, Ayn Odin 2, RedMagic, Gamesir, emulasi game PC/Switch di mobile"
+    },
+    {
+        "id": "creator_gear",
+        "title": "Creator Gear & Audio",
+        "desc": "Peralatan produksi konten video, wireless microphone, action camera, kamera vlogging mirrorless, dan audio recording.",
+        "examples": "DJI Mic 2, Osmo Pocket 3, Rode Wireless PRO, Sony ZV-E10, Insta360 Ace Pro, Shure SM7dB"
+    },
+    {
+        "id": "smartphones",
+        "title": "Smartphones & Flagship Comparisons",
+        "desc": "Komparasi smartphone flagship, inovasi kamera zoom, performa chipset harian, dan layar lipat dengan pendekatan objektif.",
+        "examples": "Samsung Galaxy S series, Vivo X series, Xiaomi Ultra, iPhone Pro, Pixel"
+    },
+    {
+        "id": "ai_next_gen",
+        "title": "AI & Next-Gen Computing",
+        "desc": "AI lokal on-device, model open-source, smart glasses, arsitektur GPU baru, dan teknologi masa depan yang aplikatif.",
+        "examples": "DeepSeek, Ollama, Ray-Ban Meta, RTX 50 series, Snapdragon X Elite, Claude"
+    },
+    {
+        "id": "productivity_ecosystem",
+        "title": "Productivity & Ecosystem Workflow",
+        "desc": "Laptop silicon efisien, tablet catatan & multitasking, setup meja kerja terintegrasi, dan fitur ekosistem lintas perangkat.",
+        "examples": "MacBook M-series, iPad Mini/Pro, Samsung DeX setup, monitor docking, keyboard mekanikal"
+    }
 ]
 
-CURRENT_POOL_INDEX = 0
+CURRENT_PILLAR_INDEX = 0
+SEEN_TOPICS_HISTORY = set()
 
 LISA_INTENT_PROMPT = """
 Kamu adalah sistem parser intent untuk bot Telegram Lisa (partner kerja Tama, Lead Production Mas Ario @sheggario).
@@ -79,6 +90,27 @@ Pesan dari Tama:
 Balas chat Tama dengan gaya khas Lisa:
 """
 
+DYNAMIC_TOPIC_GEN_PROMPT = """
+Kamu adalah Lisa, AI content writer handal untuk channel tech Mas Ario @sheggario dan Tama.
+Saat ini kita ingin mencari 3 ide topik baru di Pilar Konten: "{pillar_title}".
+Deskripsi Pilar: {pillar_desc}
+Contoh acuan tipe konten: {pillar_examples}
+
+ATURAN EKSPLORASI:
+1. Contoh acuan di atas HANYA sebagai referensi jenis konten! JANGAN cuma mutar-mutar di contoh tersebut, eksplorasi software atau gadget lain yang sejenis dan relevan!
+2. DILARANG KERAS memilih topik atau produk yang sudah pernah disajikan sebelumnya: {seen_history}
+3. yt_query HARUS bersih berupa nama murni software/gadget saja (DILARANG menambahkan kata "review", "indonesia", atau "terbaru").
+4. DILARANG menggunakan em dash.
+5. Kembalikan data dalam format JSON murni:
+[
+  {{
+    "topic_name": "Nama Spesifik Software / Gadget",
+    "yt_query": "Query Bersih (contoh: LocalSend, Raycast, Bitwarden)",
+    "category": "Micro / Macro / Flash"
+  }}
+]
+"""
+
 def parse_user_intent(user_text: str, gemini_key: str) -> dict:
     url = f"{GEMINI_API_URL}?key={gemini_key}"
     payload = {
@@ -109,15 +141,16 @@ def generate_lisa_chat_reply(user_text: str, gemini_key: str) -> str:
     return "Iyaa Tam, ada yang bisa gue bantu risetin lagi buat Mas Ario?"
 
 def handle_research_topic(query: str, yt_key: str) -> str:
-    print(f"[Research] Meneliti topik spesifik: {query}...")
-    metrics = evaluate_topic_supply_demand(query, yt_key)
+    clean_q = clean_query_entity(query)
+    print(f"[Research] Meneliti topik spesifik: {clean_q}...")
+    metrics = evaluate_topic_supply_demand(clean_q, yt_key)
     score = metrics["arbitrage_score"]
     status = metrics["status"]
     lb = metrics.get("long_benchmark")
     sb = metrics.get("short_benchmark")
     
     lines = [
-        f"🔍 <b>Hasil Telaah Pasar Lisa: \"{escape_html(query.title())}\"</b>\n",
+        f"🔍 <b>Hasil Telaah Pasar Lisa: \"{escape_html(clean_q.title())}\"</b>\n",
         f"📊 <b>Arbitrage Score:</b> <code>{score}/10</code>",
         f"📈 <b>Status Pasar:</b> {status}\n"
     ]
@@ -136,27 +169,60 @@ def handle_research_topic(query: str, yt_key: str) -> str:
     lines.append("Gimana Tam, menurut lo topik ini potensial buat digarap bareng Mas Ario? Kalo mau dieksekusi, colek gue yaa! ✨")
     return "\n".join(lines)
 
-def handle_more_options(yt_key: str) -> str:
-    global CURRENT_POOL_INDEX
-    print(f"[More Options] Memakai pool rotasi ke-{CURRENT_POOL_INDEX}...")
+def handle_more_options(gemini_key: str, yt_key: str) -> str:
+    global CURRENT_PILLAR_INDEX, SEEN_TOPICS_HISTORY
     
-    pool = DYNAMIC_TOPIC_POOLS[CURRENT_POOL_INDEX]
-    CURRENT_POOL_INDEX = (CURRENT_POOL_INDEX + 1) % len(DYNAMIC_TOPIC_POOLS)
+    pillar = SIX_CONTENT_PILLARS[CURRENT_PILLAR_INDEX]
+    CURRENT_PILLAR_INDEX = (CURRENT_PILLAR_INDEX + 1) % len(SIX_CONTENT_PILLARS)
     
+    print(f"[More Options] Mengeksplorasi Pilar: {pillar['title']} (History seen: {len(SEEN_TOPICS_HISTORY)} items)...")
+    
+    prompt = DYNAMIC_TOPIC_GEN_PROMPT.format(
+        pillar_title=pillar["title"],
+        pillar_desc=pillar["desc"],
+        pillar_examples=pillar["examples"],
+        seen_history=list(SEEN_TOPICS_HISTORY) if SEEN_TOPICS_HISTORY else "Belum ada"
+    )
+    
+    url = f"{GEMINI_API_URL}?key={gemini_key}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.8, "responseMimeType": "application/json"}
+    }
+    
+    candidates = []
+    try:
+        r = requests.post(url, json=payload, timeout=20)
+        if r.status_code == 200:
+            candidates = json.loads(r.json()["candidates"][0]["content"]["parts"][0]["text"].strip())
+    except Exception as e:
+        print(f"[Gemini Dynamic Gen Error] {e}")
+        
+    # Fallback aman jika gemini gagal
+    if not candidates:
+        examples = [e.strip() for e in pillar["examples"].split(",")]
+        random.shuffle(examples)
+        candidates = [{"topic_name": ex, "yt_query": ex, "category": "Micro"} for ex in examples[:3]]
+        
     lines = [
-        "🔄 <b>Opsi Topik Alternatif Segar dari Lisa</b> ✨\n",
+        f"🔄 <b>Opsi Topik Alternatif: {escape_html(pillar['title'])}</b> ✨\n",
+        f"<i>Kategori: {pillar['desc']}</i>\n",
         "Ini 3 ide topik baru dengan metrik pasar tervalidasi (Bahasa Indo/Inggris murni):\n"
     ]
     
-    for i, item in enumerate(pool, 1):
-        q = item["name"]
-        cat = item["cat"]
+    for i, item in enumerate(candidates[:3], 1):
+        q = clean_query_entity(item.get("yt_query") or item.get("topic_name"))
+        cat = item.get("category", "Micro")
+        
+        # Simpan ke history agar tidak pernah diulang
+        SEEN_TOPICS_HISTORY.add(q.lower())
+        
         m = evaluate_topic_supply_demand(q, yt_key)
         lb = m.get("long_benchmark")
         sb = m.get("short_benchmark")
         
         lines.append("────────────────────────────")
-        lines.append(f"📌 <b>{i}. {escape_html(q)}</b>")
+        lines.append(f"📌 <b>{i}. {escape_html(item['topic_name'])}</b>")
         lines.append(f"🏷️ <b>Tipe:</b> {cat} Trend | <b>Score:</b> <code>{m['arbitrage_score']}/10</code>")
         lines.append(f"📈 <b>Status Pasar:</b> {m['status']}")
         
@@ -168,7 +234,7 @@ def handle_more_options(yt_key: str) -> str:
             lines.append("")
             
     lines.append("────────────────────────────")
-    lines.append("Ada yang lebih klik di lo gak Tam dari opsi alternatif di atas? ✨")
+    lines.append("Ada yang lebih klik di lo gak Tam dari opsi alternatif di atas? Kalo mau ganti pilar lagi, ketik 'opsi lain' yaa! ✨")
     return "\n".join(lines)
 
 def run_chat_listener():
@@ -183,7 +249,7 @@ def run_chat_listener():
         return
         
     print("=" * 60)
-    print("🤖 LISA TELEGRAM CHAT LISTENER (V2 PRO) IS ONLINE")
+    print("🤖 LISA TELEGRAM CHAT LISTENER (V3 DYNAMIC PILLARS) IS ONLINE")
     print("Listening for messages from Tama...")
     print("=" * 60)
     
@@ -200,7 +266,7 @@ def run_chat_listener():
                 updates = data.get("result", [])
                 
                 if updates:
-                    # SEGERA update offset ke Telegram agar TIDAK ADA DUPLIKASI pesan saat proses berat!
+                    # Immediate Telegram Offset Acknowledgment
                     max_id = max(u["update_id"] for u in updates)
                     offset = max_id + 1
                     try:
@@ -229,7 +295,7 @@ def run_chat_listener():
                         if intent == "RESEARCH_TOPIC" and query:
                             reply = handle_research_topic(query, yt_key)
                         elif intent == "MORE_OPTIONS":
-                            reply = handle_more_options(yt_key)
+                            reply = handle_more_options(gemini_key, yt_key)
                         else:
                             reply = generate_lisa_chat_reply(user_text, gemini_key)
                             
