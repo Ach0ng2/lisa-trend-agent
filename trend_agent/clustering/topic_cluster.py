@@ -5,21 +5,25 @@ from typing import List, Dict, Any
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
 
 CLUSTER_PROMPT = """
-Kamu adalah Lisa, content writer sekaligus rekan kerja terdekat Tama (Lead Production channel YouTube Mas Ario @sheggario).
+Kamu adalah Lisa, content writer sekaligus partner diskusi terdekat Tama (Lead Production channel YouTube Mas Ario @sheggario).
 Gaya bicaramu santai, cerdas, akrab, bilingual Indonesia-Inggris secara alami, dan sangat paham selera konten Mas Ario (tech storytelling, ekosistem perangkat, komparasi jujur, tanpa menjelekkan brand).
 
 ATURAN MUTLAK PENULISAN:
 - DILARANG KERAS menggunakan simbol em dash (strip panjang atau double dash) dalam teks apapun. Ganti dengan koma, titik, atau tanda kurung.
 
-Berikut adalah sinyal tren mentah dari Google Trends dan pencarian YouTube hari ini:
+Berikut sinyal tren mentah dari Google Trends dan pencarian YouTube hari ini:
 === RAW SIGNALS ===
 {raw_signals}
 ===================
 
 TUGAS:
-1. Pilih 3 sampai 4 topik tech/gadget/AI paling seksi dan relevan untuk audiens Indonesia dan channel Mas Ario.
+1. Pilih 3 topik tech/gadget/AI paling hangat dan relevan untuk audiens Indonesia dan channel Mas Ario.
 2. Buang topik non-tech (olahraga, politik, gosip umum).
-3. Untuk setiap topik, susun angle cerita dengan gaya Lisa yang ngobrol langsung ke Tama (panggil 'lo' atau 'Mas Ario', kasih saran sudut pandang yang unik).
+3. Untuk setiap topik, sediakan:
+   - Angle YouTube Long-Form (storytelling Mas Ario)
+   - 2 Pilihan Hook Short-Form (IG Reels/TikTok):
+     * Hook 1: Gaya Curiosity / Perbandingan Lugas
+     * Hook 2: Gaya Problem Nyata / Warning Santai
 4. Kembalikan data dalam format JSON murni:
 [
   {{
@@ -27,8 +31,9 @@ TUGAS:
     "yt_query": "Query pencarian YouTube paling pas untuk cek pasar",
     "category": "Flash / Micro / Macro",
     "core_entity": "Nama gadget atau teknologi kunci",
-    "angle_idea": "Saran angle cerita ala Lisa yang seru buat dibahas bareng Mas Ario (1-2 kalimat padat dan berbobot)",
-    "recommended_format": "IG Reels / Shorts ATAU YouTube Long-Form"
+    "long_form_angle": "Saran angle cerita YouTube ala Lisa untuk Mas Ario (1-2 kalimat padat)",
+    "hook_reels_1": "Kalimat pembuka hook 1 (siap diucap Mas Ario dalam 3 detik pertama Reels)",
+    "hook_reels_2": "Kalimat pembuka hook 2 (angle alternatif problem/curiosity)"
   }}
 ]
 
@@ -37,7 +42,7 @@ KEMBALIKAN HANYA JSON VALID TANPA MARKDOWN TAMBAHAN.
 
 def extract_and_cluster_topics(raw_signals: List[str], api_key: str) -> List[Dict[str, Any]]:
     """
-    Mengelompokkan tren mentah menjadi 3-4 topik tech pilihan dengan gaya Lisa.
+    Mengelompokkan tren mentah menjadi 3 topik tech pilihan dengan angle Long-Form dan Short-Form Hooks.
     """
     signals_text = "\n".join([f"- {s}" for s in raw_signals[:40]])
     prompt = CLUSTER_PROMPT.format(raw_signals=signals_text)
@@ -56,7 +61,6 @@ def extract_and_cluster_topics(raw_signals: List[str], api_key: str) -> List[Dic
         if response.status_code == 200:
             data = response.json()
             text_result = data["candidates"][0]["content"]["parts"][0]["text"]
-            # Bersihkan jika ada backticks
             cleaned_text = text_result.strip()
             if cleaned_text.startswith("```json"):
                 cleaned_text = cleaned_text[7:]
@@ -79,6 +83,6 @@ if __name__ == "__main__":
     
     key = os.getenv("GEMINI_API_KEY")
     if key:
-        sample = ["S26 Ultra vs Vivo X300", "DeepSeek R1 local reasoning", "Snapdragon 8 Elite vs Dimensity 9400"]
+        sample = ["S26 Ultra vs iPhone 17 Pro", "Snapdragon 8 Elite vs Dimensity 9400", "DeepSeek R1 local AI"]
         res = extract_and_cluster_topics(sample, key)
         print("Topics:", res)
