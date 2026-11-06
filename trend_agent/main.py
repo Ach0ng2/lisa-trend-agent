@@ -22,6 +22,32 @@ def escape_html(text: str) -> str:
         return ""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+def format_topic_card(idx: int, t: dict) -> list:
+    """Format satu kartu topik bersih tanpa angle/hook."""
+    lines = []
+    cat = t.get("category", "Micro")
+    score = t["metrics"]["arbitrage_score"]
+    status = t["metrics"]["status"]
+    lb = t["metrics"].get("long_benchmark")
+    sb = t["metrics"].get("short_benchmark")
+    
+    lines.append("────────────────────────────")
+    lines.append(f"📌 <b>{idx}. {escape_html(t['topic_name'])}</b>")
+    lines.append(f"🏷️ <b>Tipe:</b> {cat} Trend | <b>Score:</b> <code>{score}/10</code>")
+    lines.append(f"📈 <b>Status Pasar:</b> {status}")
+    
+    if lb:
+        clean_lb_title = escape_html(lb['title'])
+        lines.append(f"\n🎬 <b>Bukti Demand Long-Form:</b>\n<a href=\"{lb['url']}\">{clean_lb_title}</a>\n↳ <i>{lb['views']:,} views ({lb['vph']} VPH) • {escape_html(lb['channel'])}</i>")
+        
+    if sb:
+        clean_sb_title = escape_html(sb['title'])
+        lines.append(f"\n⚡ <b>Bukti Viral Short-Form:</b>\n<a href=\"{sb['url']}\">{clean_sb_title}</a>\n↳ <i>{sb['views']:,} views ({sb['vph']} VPH) • {escape_html(sb['channel'])}</i>\n")
+    else:
+        lines.append("")
+        
+    return lines
+
 def run_pipeline():
     load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
     
@@ -31,7 +57,7 @@ def run_pipeline():
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     
     print("=" * 60)
-    print("🔥 LISA TECH TREND INTELLIGENCE PIPELINE (PRO BENCHMARKS EDITION)")
+    print("🔥 LISA TECH TREND INTELLIGENCE PIPELINE (CLEAN EDITION)")
     print("=" * 60)
     
     if not gemini_key or not yt_key:
@@ -58,73 +84,38 @@ def run_pipeline():
             
     print(f"Total sinyal mentah terkumpul: {len(raw_signals)}")
     
-    # Phase 2: Clustering & Entity Extraction via Gemini Flash Lite
-    print("\n[Phase 2] Lisa lagi ngeracik topik, angle YouTube, dan hook Reels...")
+    # Phase 2: Clustering
+    print("\n[Phase 2] Lisa lagi ngerangkum topik tech terhangat...")
     topics = extract_and_cluster_topics(raw_signals, gemini_key)
     print(f"Topik tech terpilih: {len(topics)}")
     
-    # Phase 3: Supply-Demand Arbitrage & Kredibel Benchmarking
-    print("\n[Phase 3] Mengambil benchmark kredibel (Long-Form & Shorts viral)...")
+    # Phase 3: Supply-Demand Arbitrage
+    print("\n[Phase 3] Mengambil benchmark kredibel (Bahasa Indo/Inggris, no gimmick)...")
     evaluated_topics = []
     for idx, item in enumerate(topics, 1):
         query = item.get("yt_query") or item.get("topic_name")
-        print(f"[{idx}/{len(topics)}] Cek traffic valid YouTube: {query}...")
+        print(f"[{idx}/{len(topics)}] Cek pasar YouTube: {query}...")
         metrics = evaluate_topic_supply_demand(query, yt_key)
         evaluated_topics.append({
             **item,
             "metrics": metrics
         })
         
-    # Phase 4: Format Message in Lisa's Authentic Voice
-    print("\n[Phase 4] Menyusun laporan dengan benchmark ratusan ribu views...")
+    # Phase 4: Format Message
+    print("\n[Phase 4] Menyusun laporan bersih...")
     now_str = datetime.datetime.now().strftime("%d %b %Y, %H:%M WIB")
     
     msg_lines = [
         "✨ <b>Pagi Tam! Contekan Tren Hari Ini dari Lisa</b> ✨",
         f"<i>Update: {now_str}</i>\n",
-        "Filternya udah gue upgrade yaa! Sekarang video pembandingnya cuma ngambil yang <b>terbukti meledak (views puluhan ribu sampai jutaan)</b>, plus gue kasih <b>opsi Hook buat Reels / TikTok</b>!\n"
+        "Berikut kurasi topik tech terpanas pagi ini dengan bukti demand video valid (Bahasa Indo/Inggris):\n"
     ]
     
     for i, t in enumerate(evaluated_topics, 1):
-        cat = t.get("category", "Micro")
-        score = t["metrics"]["arbitrage_score"]
-        status = t["metrics"]["status"]
-        lb = t["metrics"].get("long_benchmark")
-        sb = t["metrics"].get("short_benchmark")
-        
-        msg_lines.append("────────────────────────────")
-        msg_lines.append(f"📌 <b>{i}. {escape_html(t['topic_name'])}</b>")
-        msg_lines.append(f"🏷️ <b>Tipe:</b> {cat} Trend | <b>Score:</b> <code>{score}/10</code>")
-        msg_lines.append(f"📈 <b>Status Pasar:</b> {status}")
-        
-        # Angle Long-form
-        long_angle = t.get("long_form_angle") or t.get("angle_idea", "")
-        msg_lines.append(f"\n💡 <b>Angle YouTube (Long-Form):</b>\n<i>\"{escape_html(long_angle)}\"</i>")
-        
-        # Hook Reels / TikTok
-        hook1 = t.get("hook_reels_1", "")
-        hook2 = t.get("hook_reels_2", "")
-        if hook1 or hook2:
-            msg_lines.append(f"\n📱 <b>Opsi Hook Reels/Shorts Mas Ario:</b>")
-            if hook1:
-                msg_lines.append(f"• <i>\"{escape_html(hook1)}\"</i>")
-            if hook2:
-                msg_lines.append(f"• <i>\"{escape_html(hook2)}\"</i>")
-                
-        # Benchmark Videos
-        if lb:
-            clean_lb_title = escape_html(lb['title'])
-            msg_lines.append(f"\n🎬 <b>Bukti Demand Long-Form:</b>\n<a href=\"{lb['url']}\">{clean_lb_title}</a>\n↳ <i>{lb['views']:,} views ({lb['vph']} VPH) • {escape_html(lb['channel'])}</i>")
-            
-        if sb:
-            clean_sb_title = escape_html(sb['title'])
-            msg_lines.append(f"\n⚡ <b>Bukti Viral Short-Form:</b>\n<a href=\"{sb['url']}\">{clean_sb_title}</a>\n↳ <i>{sb['views']:,} views ({sb['vph']} VPH) • {escape_html(sb['channel'])}</i>\n")
-        else:
-            msg_lines.append("")
+        msg_lines.extend(format_topic_card(i, t))
             
     msg_lines.append("────────────────────────────")
-    msg_lines.append("Kalo ada angle atau hook yang mau kita gas jadi script hari ini, colek gue yaa Tam! Semangat produksinya! 💪✨\n")
-    msg_lines.append("<i>By Now, Be Nice! ✨</i>")
+    msg_lines.append("Kalo lo mau telaah topik spesifik (misal: <i>\"Lis, kalo droiddeck gimana?\"</i>), langsung ketik aja di chat ini yaa Tam! Nanti gue risetin demand pasarnya buat lo. ✨")
     
     report_text = "\n".join(msg_lines)
     
@@ -133,7 +124,7 @@ def run_pipeline():
         print(f"\nMengirim laporan baru ke Telegram ({chat_id})...")
         sent = send_telegram_message(bot_token, chat_id, report_text)
         if sent:
-            print("✅ SUKSES! Laporan ter-upgrade berhasil terkirim ke Telegram!")
+            print("✅ SUKSES! Laporan bersih berhasil terkirim ke Telegram!")
         else:
             print("❌ GAGAL MENGIRIM KE TELEGRAM.")
     else:
